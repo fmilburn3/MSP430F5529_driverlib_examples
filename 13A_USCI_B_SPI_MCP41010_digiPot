@@ -1,0 +1,130 @@
+/*
+ * 13A_USCI_B_SPI_MCP41010_digiPot: demonstrates controla of a MCP41010 digital
+ * potentiometer over SPI.  Output can be measured on a multimeter.  The
+ * same value is output over and over in an endless loop.
+ *
+ * MCLK and SMCLK running at approximately 1.048 MHz
+ * ACLK uses REFO (~32,768 Hz)
+ *
+ *   MCP41010        MSP430F5529
+ *   Pin  Name		 Pin    Name
+ *   ---  -----      ---    -------------
+ *     1  CS         8      (CS)
+ *     2  SCK        7      (CLK)
+ *     3  SI         15     (SIMO)
+ *     4  Vss        GND
+ *     5  PAO        3.3V
+ *     6  PWO        --     Multi-meter
+ *     7  PBO        GND
+ *     8  Vdd        3.3V
+ *
+ * Frank Milburn 	9 September 2016
+ */
+#include "driverlib.h"
+
+#define       SPI_CLK           500000                       // SPI freq
+#define       RED_LED           GPIO_PORT_P1,GPIO_PIN1
+#define       SIMO              GPIO_PIN0
+#define       SOMI              GPIO_PIN1
+#define       CLK               GPIO_PIN2
+#define       CS                GPIO_PORT_P2,GPIO_PIN7
+#define       SPI_PERIPHERAL    GPIO_PORT_P3,SOMI+SIMO+CLK
+
+void setupGPIO(void);
+void setupSPI(void);
+void digiPot(uint8_t command, uint8_t data);
+
+void main(void)
+{
+    WDT_A_hold(WDT_A_BASE);
+
+    setupGPIO();
+    setupSPI();
+
+    for(;;)
+    {
+    	digiPot(17, 160);     // write the value 160 over and over
+    }
+}
+
+void setupGPIO(void){
+
+	GPIO_setAsOutputPin(CS);
+	GPIO_setOutputHighOnPin(CS);                            // set CS high
+
+    GPIO_setAsOutputPin(RED_LED);
+
+    // Peripheral option select for SPI
+    GPIO_setAsPeripheralModuleFunctionInputPin(SPI_PERIPHERAL);
+}
+
+void setupSPI(void){
+
+    USCI_B_SPI_initMasterParam param = {0};
+		param.selectClockSource =     USCI_B_SPI_CLOCKSOURCE_SMCLK;
+		param.clockSourceFrequency =  UCS_getSMCLK();
+		param.desiredSpiClock =       SPI_CLK;
+		param.msbFirst =              USCI_B_SPI_MSB_FIRST;
+		param.clockPhase =            USCI_B_SPI_PHASE_DATA_CAPTURED_ONFIRST_CHANGED_ON_NEXT;
+		param.clockPolarity =         USCI_B_SPI_CLOCKPOLARITY_INACTIVITY_LOW;
+
+	int returnValue = USCI_B_SPI_initMaster(USCI_B0_BASE, &param);
+
+    if(STATUS_FAIL == returnValue) {
+        // inform user of error if initialization fails
+    	GPIO_setOutputHighOnPin(RED_LED);
+    	return;
+    }
+
+    USCI_B_SPI_enable(USCI_B0_BASE);
+}
+
+void digiPot(uint8_t command, uint8_t data){
+	// The MCP41010 must get 2 bytes between enabling and disabling through CS
+	// The first byte is the command byte:   00000000  No command  (0)
+	//                                       00010001  Write data  (17)
+	//  									 00100001  Shutdown    (33)
+	// The second byte is the data byte between 0 and 255
+
+
+	GPIO_setOutputLowOnPin(CS);                                  // Pull CS low
+
+	USCI_B_SPI_transmitData(USCI_B0_BASE, command);
+	USCI_B_SPI_transmitData(USCI_B0_BASE, data);
+
+	GPIO_setOutputHighOnPin(CS);                                 // Set CS back high
+}
+/* This code contains fragments and sections subject to the following
+ * copyright:
+ *
+ * --COPYRIGHT--,BSD
+ * Copyright (c) 2016, Texas Instruments Incorporated
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ * *  Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *
+ * *  Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * *  Neither the name of Texas Instruments Incorporated nor the names of
+ *    its contributors may be used to endorse or promote products derived
+ *    from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+ * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+ * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * --/COPYRIGHT--*/
