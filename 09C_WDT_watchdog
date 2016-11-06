@@ -1,0 +1,108 @@
+/*
+ * 09C_WDT_watchdog: simple demonstration that uses the WDT as a
+ * watchdog.  Blinks a LED at a fixed rate.  The watchdog must be petted at
+ * least every 250 ms.
+ *
+ * MCLK and SMCLK use default DCO (~1.045 MHz)
+ * ACLK uses REFO (~32,768 Hz)
+ * WDT uses ACLK as source with clock divider of 8192 which means it
+ * must be petted at least every 250 ms
+ *
+ * Frank Milburn 	4 September 2016
+ * Developed on MSP-EXP430F5529 LaunchPad Rev1.5 on CCS V6.1, TIv16.6.0.STS
+ */
+
+#include "driverlib.h"
+
+#define  RED_LED		GPIO_PORT_P1,GPIO_PIN0
+#define  TIMER_PERIOD   5000
+
+void setupTimerA0(void);
+
+//--------------------------------  m a i n  -----------------------------------
+void main(void)
+{
+    WDT_A_initWatchdogTimer(
+    	WDT_A_BASE,
+    	WDT_A_CLOCKSOURCE_ACLK,
+		WDT_A_CLOCKDIVIDER_8192
+    );
+
+    WDT_A_start(WDT_A_BASE);
+
+    setupTimerA0();
+
+    //Place WDT in timer interrupt mode
+    SFR_clearInterrupt(SFR_WATCHDOG_INTERVAL_TIMER_INTERRUPT);
+    SFR_enableInterrupt(SFR_WATCHDOG_INTERVAL_TIMER_INTERRUPT);
+
+    GPIO_setAsOutputPin(RED_LED);
+
+    //Enter LPM3, enable interrupts
+    __bis_SR_register(LPM3_bits + GIE);
+
+    for(;;);
+}
+//-------------------------  s e t u p T i m e r A 0  ----------------------------
+void setupTimerA0(void){
+	Timer_A_clearTimerInterrupt(TIMER_A0_BASE);
+
+	Timer_A_initUpModeParam param = {0};
+		param.clockSource = TIMER_A_CLOCKSOURCE_ACLK;
+		param.clockSourceDivider = TIMER_A_CLOCKSOURCE_DIVIDER_1;
+		// Set the timer period in the following line
+		param.timerPeriod = TIMER_PERIOD;
+		param.timerInterruptEnable_TAIE = TIMER_A_TAIE_INTERRUPT_DISABLE;
+		param.captureCompareInterruptEnable_CCR0_CCIE =
+			TIMER_A_CAPTURECOMPARE_INTERRUPT_ENABLE;
+		param.timerClear = TIMER_A_DO_CLEAR;
+		param.startTimer = true;
+
+	Timer_A_initUpMode(TIMER_A0_BASE, &param);
+}
+//-------------------------  T I M E R A 0   I S R  ----------------------------
+#if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
+#pragma vector=TIMER0_A0_VECTOR
+__interrupt
+#elif defined(__GNUC__)
+__attribute__((interrupt(TIMERA0_VECTOR)))
+#endif
+void TIMERA0_ISR(void)
+{
+	WDT_A_resetTimer(WDT_A_BASE);               // !!! Pet the watchdog !!!
+	GPIO_toggleOutputOnPin(RED_LED);
+}
+/* This code contains fragments and sections subject to the following
+ * copyright:
+ *
+ * --COPYRIGHT--,BSD
+ * Copyright (c) 2016, Texas Instruments Incorporated
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ * *  Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *
+ * *  Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * *  Neither the name of Texas Instruments Incorporated nor the names of
+ *    its contributors may be used to endorse or promote products derived
+ *    from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+ * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+ * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * --/COPYRIGHT--*/
