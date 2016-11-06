@@ -1,0 +1,218 @@
+/*
+ * 05B_ADC_time_ADC: times the ADC converter through 10,000 iterations.
+ * Uses the WDT as a timer.
+ *
+ * Right click project --> Properties --> MSP430 Linker --> Basic Options
+ * Increase the Heap size to 320 to use printf()
+ *
+ * Connect a potentiometer between GND and 3V3 on the LaunchPad with the
+ * wiper going to P6.0
+ *
+ * Frank Milburn 	22 August 2016
+ * Developed on MSP-EXP430F5529 LaunchPad Rev1.5 on CCS V6.1, TIv16.6.0.STS
+ */
+#include "driverlib.h"
+#include <stdio.h>      // increase heap size to 320  in linker for printf()
+
+#define MCLK_FREQ_KHZ                       24000
+#define FLLREF_KHZ                          32
+#define UCS_MCLK_FLLREF_RATIO   			MCLK_FREQ_KHZ/FLLREF_KHZ
+#define NUM_READS                           10000
+#define ADC_PIN                             GPIO_PORT_P6,GPIO_PIN0
+
+void setupPMM();
+void setupUCS();
+void setupWDT();
+unsigned long milliSecs();
+void setupADC(void);
+unsigned long readADC(void);
+
+volatile unsigned long oneThirdMillis = 0;   // counter - 1/3 of a millisecond
+
+//--------------------------------  m a i n  -----------------------------------
+int main(void) {
+
+    WDT_A_hold(WDT_A_BASE);
+
+	setupPMM();
+	setupUCS();
+	setupWDT();
+    setupADC();
+
+    __bis_SR_register(GIE);
+
+    int i;
+    unsigned long analogValue;
+    unsigned long mark = milliSecs();
+
+    for(i = 0; i < NUM_READS; i++){
+    	analogValue = readADC();
+    }
+
+    unsigned long finished = milliSecs();
+    printf("Time = %d ms\n", finished - mark);
+    printf("Last value = %d mV\n", (analogValue * 3230) / 4096);   // Vcc = 3.23V
+
+    while(1);
+}
+//-----------------------------  s e t u p A D C  -------------------------------
+void setupADC(void){
+
+    GPIO_setAsPeripheralModuleFunctionOutputPin(ADC_PIN);
+
+    ADC12_A_init(ADC12_A_BASE,
+                 ADC12_A_SAMPLEHOLDSOURCE_SC,
+                 ADC12_A_CLOCKSOURCE_ADC12OSC,
+                 ADC12_A_CLOCKDIVIDER_1);
+
+    ADC12_A_enable(ADC12_A_BASE);
+
+    ADC12_A_setupSamplingTimer(ADC12_A_BASE,
+                               ADC12_A_CYCLEHOLD_4_CYCLES,
+                               ADC12_A_CYCLEHOLD_4_CYCLES,
+                               ADC12_A_MULTIPLESAMPLESDISABLE);
+
+    ADC12_A_configureMemoryParam param = {0};
+    param.memoryBufferControlIndex = ADC12_A_MEMORY_0;
+    param.inputSourceSelect = ADC12_A_INPUT_A0;
+    param.positiveRefVoltageSourceSelect = ADC12_A_VREFPOS_AVCC;
+    param.negativeRefVoltageSourceSelect = ADC12_A_VREFNEG_AVSS;
+    param.endOfSequence = ADC12_A_NOTENDOFSEQUENCE;
+
+    ADC12_A_configureMemory(ADC12_A_BASE,&param);
+
+    ADC12_A_enableInterrupt(ADC12_A_BASE, ADC12_A_IE0);
+}
+//-----------------------------  r e a d A D C  --------------------------------
+unsigned long readADC(void){
+
+	ADC12_A_startConversion(ADC12_A_BASE,
+							ADC12_A_MEMORY_0,
+							ADC12_A_SINGLECHANNEL);
+    __bis_SR_register(LPM3_bits);                     // sleep until converted
+	return ADC12_A_getResults(ADC12_A_BASE, ADC12_A_MEMORY_0);
+}
+//----------------------------  s e t u p P M M  -------------------------------
+void setupPMM(void){
+    // set VCore = 0 for 8 MHz and below
+    //           = 1 for 12 MHz
+    //           = 2 for 20 MHz
+    //           = 3 for 25 MHz
+    PMM_setVCore(PMM_CORE_LEVEL_3);
+}
+//----------------------------  s e t u p U C S  -------------------------------
+void setupUCS(void){
+    UCS_initClockSignal(                     // use REFO for ACLK (32768 Hz)
+        UCS_ACLK,
+        UCS_REFOCLK_SELECT,
+        UCS_CLOCK_DIVIDER_1);
+
+    UCS_initClockSignal(                     // set DCO FLL ref to DFOCLK
+        UCS_FLLREF,
+        UCS_DCOCLK_SELECT,
+        UCS_CLOCK_DIVIDER_1);
+
+    UCS_initClockSignal(                     // use DFOCLK for SMCLK
+        UCS_SMCLK,
+        UCS_DCOCLK_SELECT,
+        UCS_CLOCK_DIVIDER_1);
+
+    UCS_initFLLSettle(                       // set MCLK frequency and ratio
+    	MCLK_FREQ_KHZ,
+        UCS_MCLK_FLLREF_RATIO);
+}
+//----------------------------  s e t u p W D T  -------------------------------
+void setupWDT(void){
+    WDT_A_initIntervalTimer(WDT_A_BASE,
+                            WDT_A_CLOCKSOURCE_SMCLK,
+                            WDT_A_CLOCKDIVIDER_8192);
+
+    WDT_A_start(WDT_A_BASE);
+
+    //Place WDT in timer interrupt mode
+    SFR_clearInterrupt(SFR_WATCHDOG_INTERVAL_TIMER_INTERRUPT);
+    SFR_enableInterrupt(SFR_WATCHDOG_INTERVAL_TIMER_INTERRUPT);
+}
+//---------------------------  m i l l i S e c s  ----------------------------
+unsigned long milliSecs(){
+	return oneThirdMillis / 3;               // return millis
+}
+//---------------------------  W D T _ A _ I S R  ----------------------------
+#if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
+#pragma vector=WDT_VECTOR
+__interrupt
+#elif defined(__GNUC__)
+__attribute__((interrupt(WDT_VECTOR)))
+#endif
+void WDT_A_ISR(void)
+{
+    oneThirdMillis++;                        // count thirds of a millisecond
+}
+//-------------------------  A D C 1 2 _ A _ I S R  --------------------------
+#if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
+#pragma vector=ADC12_VECTOR
+__interrupt
+#elif defined(__GNUC__)
+__attribute__((interrupt(ADC12_VECTOR)))
+#endif
+void ADC12_A_ISR(void)
+{
+    switch(__even_in_range(ADC12IV,34))
+    {
+    case  0: break;       //Vector  0:  No interrupt
+    case  2: break;       //Vector  2:  ADC overflow
+    case  4: break;       //Vector  4:  ADC timing overflow
+    case  6:              //Vector  6:  ADC12IFG0
+        ADC12_A_clearInterrupt(ADC12_A_BASE, ADC12_A_IE0);
+        __bic_SR_register_on_exit(LPM0_bits);
+    case  8: break;       //Vector  8:  ADC12IFG1
+    case 10: break;       //Vector 10:  ADC12IFG2
+    case 12: break;       //Vector 12:  ADC12IFG3
+    case 14: break;       //Vector 14:  ADC12IFG4
+    case 16: break;       //Vector 16:  ADC12IFG5
+    case 18: break;       //Vector 18:  ADC12IFG6
+    case 20: break;       //Vector 20:  ADC12IFG7
+    case 22: break;       //Vector 22:  ADC12IFG8
+    case 24: break;       //Vector 24:  ADC12IFG9
+    case 26: break;       //Vector 26:  ADC12IFG10
+    case 28: break;       //Vector 28:  ADC12IFG11
+    case 30: break;       //Vector 30:  ADC12IFG12
+    case 32: break;       //Vector 32:  ADC12IFG13
+    case 34: break;       //Vector 34:  ADC12IFG14
+    default: break;
+    }
+}
+/* This code contains fragments and sections subject to the following
+ * copyright:
+ *
+ * --COPYRIGHT--,BSD
+ * Copyright (c) 2016, Texas Instruments Incorporated
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ * *  Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *
+ * *  Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * *  Neither the name of Texas Instruments Incorporated nor the names of
+ *    its contributors may be used to endorse or promote products derived
+ *    from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+ * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+ * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * --/COPYRIGHT--*/
