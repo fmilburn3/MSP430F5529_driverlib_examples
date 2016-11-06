@@ -1,0 +1,147 @@
+/*
+ * 12A_USCI_A_UART_loop_check: demonstrates UART with a single LaunchPad
+ * sending a byte to itself.
+ * same value is output over and over in an endless loop.
+ *
+ * MCLK and SMCLK running at approximately 1.048 MHz
+ * ACLK uses REFO (~32,768 Hz)
+ * UART values set from Table 36-4 in Family User Guide
+ *
+ *  P3.3 and P3.4 connected with jumpers
+ *
+ * Frank Milburn 	9 September 2016
+ * Developed on MSP-EXP430F5529 LaunchPad Rev1.5 on CCS V6.1, TIv16.6.0.STS
+ */
+#include "driverlib.h"
+
+#define RED_LED         GPIO_PORT_P1,GPIO_PIN0
+#define GREEN_LED       GPIO_PORT_P4,GPIO_PIN7
+#define UCA0TXD_PIN     GPIO_PORT_P3,GPIO_PIN3
+#define UCA0RXD_PIN     GPIO_PORT_P3,GPIO_PIN4
+
+uint8_t receivedData = 0x00;
+uint8_t transmitData = 0x00;
+
+
+void main(void)
+{
+    WDT_A_hold(WDT_A_BASE);
+
+    GPIO_setAsOutputPin(RED_LED);
+    GPIO_setAsOutputPin(GREEN_LED);
+    GPIO_setOutputLowOnPin(RED_LED);
+    GPIO_setOutputHighOnPin(GREEN_LED);
+
+
+    GPIO_setAsPeripheralModuleFunctionInputPin(UCA0TXD_PIN);
+    GPIO_setAsPeripheralModuleFunctionInputPin(UCA0RXD_PIN);
+
+    // From Table 36-4 in the family user's manual where UCOS16 = 0 and
+    //            baudrate = 9600
+    //            clock freq = 1.048MHz
+    // UCBRx = 109, UCBRFx = 0, UCBRSx = 2, UCOS16 = 0
+    USCI_A_UART_initParam param = {0};
+    param.selectClockSource = USCI_A_UART_CLOCKSOURCE_SMCLK;
+    param.clockPrescalar = 109;                                             // UCBRx
+    param.firstModReg = 0;                                                  // UCBRFx
+    param.secondModReg = 2;                                                 // UCBRSx
+    param.parity = USCI_A_UART_NO_PARITY;
+    param.msborLsbFirst = USCI_A_UART_LSB_FIRST;
+    param.numberofStopBits = USCI_A_UART_ONE_STOP_BIT;
+    param.uartMode = USCI_A_UART_MODE;
+    param.overSampling = USCI_A_UART_LOW_FREQUENCY_BAUDRATE_GENERATION;     // UCOS16 = 0
+
+    if(STATUS_FAIL == USCI_A_UART_init(USCI_A0_BASE, &param))
+    {
+        GPIO_setOutputHighOnPin(RED_LED);
+    	return;
+    }
+
+    //Enable UART module for operation
+    USCI_A_UART_enable(USCI_A0_BASE);
+
+    //Enable Receive Interrupt
+    USCI_A_UART_clearInterrupt(USCI_A0_BASE,
+                               USCI_A_UART_RECEIVE_INTERRUPT);
+    USCI_A_UART_enableInterrupt(USCI_A0_BASE,
+                                USCI_A_UART_RECEIVE_INTERRUPT);
+
+    __enable_interrupt();
+
+    while(1)
+    {
+        transmitData = 0;
+        int i;
+        for(i = 0; i < 255; i++){
+			transmitData += 1;                           // Increment TX data
+			// Load data onto buffer
+			USCI_A_UART_transmitData(USCI_A0_BASE,
+									 transmitData);
+			while(USCI_A_UART_queryStatusFlags(USCI_A0_BASE,USCI_A_UART_BUSY)){
+				// Wait until complete
+			}
+        }
+    }
+}
+
+//******************************************************************************
+//
+//This is the USCI_A0 interrupt vector service routine.
+//
+//******************************************************************************
+#if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
+#pragma vector=USCI_A0_VECTOR
+__interrupt
+#elif defined(__GNUC__)
+__attribute__((interrupt(USCI_A0_VECTOR)))
+#endif
+void USCI_A0_ISR(void)
+{
+    switch(__even_in_range(UCA0IV,4))
+    {
+    //Vector 2 - RXIFG
+    case 2:
+        receivedData = USCI_A_UART_receiveData(USCI_A0_BASE);
+        if(receivedData != transmitData) {                       // Loop forever
+            GPIO_setOutputHighOnPin(RED_LED);                    // and turn
+            GPIO_setOutputLowOnPin(GREEN_LED);                   // on red LED
+        	while(1);
+        }
+        break;
+    default: break;
+    }
+}
+/* This code contains fragments and sections subject to the following
+ * copyright:
+ *
+ * --COPYRIGHT--,BSD
+ * Copyright (c) 2016, Texas Instruments Incorporated
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ * *  Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *
+ * *  Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * *  Neither the name of Texas Instruments Incorporated nor the names of
+ *    its contributors may be used to endorse or promote products derived
+ *    from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+ * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+ * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * --/COPYRIGHT--*/
