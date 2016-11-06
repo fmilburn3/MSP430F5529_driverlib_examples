@@ -1,0 +1,145 @@
+/*
+ * 06C_25MHz_MCLK_XT1_ACLK: demonstrates how to set MCLK, SMCLK, and ACLK
+ * using the 32768 Hz REFOCLK as a clock reference for MCLK and SMCLK
+ * and the 32768 Hz external crystal as a clock for ACLK
+ *
+ * MCLK and SMCLK running at approximately 25000/32 * 32768 = 25.6 MHz
+ * ACLK running at  32768 using external watch crystal
+ *
+ * Note: SMCLK can be measured by oscilloscope or logic analyzer on P2.2
+ *       ACLK can be measured by oscilloscope or logic analyzer on P1.0
+ *
+ * Frank Milburn 	24 August 2016
+ * Developed on MSP-EXP430F5529 LaunchPad Rev1.5 on CCS V6.1, TIv16.6.0.STS
+ */
+#include "driverlib.h"
+
+#define MCLK_FREQ_KHZ                       25000
+#define FLLREF_KHZ                          32
+#define UCS_MCLK_FLLREF_RATIO   			MCLK_FREQ_KHZ/FLLREF_KHZ
+
+void setupPMM();
+void setupGPIO();
+void setupUCS();
+
+unsigned long clockValue = 0;
+volatile unsigned int status;
+
+//--------------------------------  m a i n  -----------------------------------
+void main(void)
+{
+    WDT_A_hold(WDT_A_BASE);
+
+    setupPMM();
+    setupGPIO();
+    setupUCS();
+
+    // enable global oscillator fault flag
+    SFR_clearInterrupt(SFR_OSCILLATOR_FAULT_INTERRUPT);
+    SFR_enableInterrupt(SFR_OSCILLATOR_FAULT_INTERRUPT);
+
+    __bis_SR_register(GIE);                     // enable global interrupt
+
+    for(;;);
+}
+//----------------------------  s e t u p P M M  -------------------------------
+void setupPMM(void){
+    // set VCore = 0 for 8 MHz and below
+    //           = 1 for 12 MHz
+    //           = 2 for 20 MHz
+    //           = 3 for 25 MHz
+    PMM_setVCore(PMM_CORE_LEVEL_3);
+}
+//---------------------------  s e t u p G P I O  ------------------------------
+void setupGPIO(void){
+
+    GPIO_setAsPeripheralModuleFunctionOutputPin(  //P1.0 output ACLK
+        GPIO_PORT_P1,
+        GPIO_PIN0);
+
+    GPIO_setAsPeripheralModuleFunctionOutputPin(  //P2.2 output SMCLK
+        GPIO_PORT_P2,
+        GPIO_PIN2);
+
+    GPIO_setAsPeripheralModuleFunctionInputPin(   //Port select XT1
+        GPIO_PORT_P5,
+        GPIO_PIN4 + GPIO_PIN5);                   // XT1 out on P5.5, XT1 in on P5.4
+}
+//----------------------------  s e t u p U C S  -------------------------------
+void setupUCS(void){
+
+    UCS_setExternalClockSource(32768,4000000);    // Frequency in Hz of XT1CLK and XT2CLK
+
+    UCS_initClockSignal(                          // use XT1CLK for ACLK (32768 Hz)
+        UCS_ACLK,
+        UCS_XT1CLK_SELECT,
+        UCS_CLOCK_DIVIDER_1);
+
+    UCS_turnOnLFXT1(
+        UCS_XT1_DRIVE_0,                          // maximum drive strength (3) needed for 25 MHz MCLK
+        UCS_XCAP_3);
+
+    UCS_initClockSignal(                          // set DCO FLL reference to DFOCLK (32768 Hz)
+        UCS_FLLREF,
+        UCS_DCOCLK_SELECT,
+        UCS_CLOCK_DIVIDER_1);
+
+    UCS_initClockSignal(                          // use DFOCLK for SMCLK
+        UCS_SMCLK,
+        UCS_DCOCLK_SELECT,
+        UCS_CLOCK_DIVIDER_1);
+
+    UCS_initFLLSettle(                            // set MCLK frequency and ratio
+    	MCLK_FREQ_KHZ,
+        UCS_MCLK_FLLREF_RATIO);
+}
+//-----------------------------  N M I _ I S R  --------------------------------
+#if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
+#pragma vector=UNMI_VECTOR
+__interrupt
+#elif defined(__GNUC__)
+__attribute__((interrupt(UNMI_VECTOR)))
+#endif
+void NMI_ISR(void)
+{
+    do
+    {
+        // trap and wait here until oscillator fault flags are cleared
+        status = UCS_clearAllOscFlagsWithTimeout(1000);
+    }
+    while(status != 0);
+}
+/* This code contains fragments and sections subject to the following
+ * copyright:
+ *
+ * --COPYRIGHT--,BSD
+ * Copyright (c) 2016, Texas Instruments Incorporated
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ * *  Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *
+ * *  Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * *  Neither the name of Texas Instruments Incorporated nor the names of
+ *    its contributors may be used to endorse or promote products derived
+ *    from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+ * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+ * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * --/COPYRIGHT--*/
