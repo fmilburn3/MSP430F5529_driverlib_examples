@@ -23,7 +23,7 @@ void main(void)
     // loop
     for(;;){
 
-    	GPIO_toggleOutputOnPin(RED_LED);    // turn red LED on
+    	GPIO_setOutputHighOnPin(RED_LED);    // turn red LED on
 
     	_delay_cycles(DELAY_CYCLES);        // delay a while
 
