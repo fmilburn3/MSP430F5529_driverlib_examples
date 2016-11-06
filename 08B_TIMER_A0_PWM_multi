@@ -1,0 +1,122 @@
+/*
+ * 08B_TIMER_A0_PWM_multi: Uses timer A0 to generate PWM on three pins
+ *
+ * Using ~1.045MHz SMCLK as TACLK
+ *
+ * TIMER_PERIOD defines the count before timer resets (1023) on next cycle
+ * Setting PWM1 to 768 gives 75% duty cycle   (.75 * 1024 = 768)
+ * Setting PWM2 to 256 gives 25% duty cycle   (.25 * 1024 = 768)
+ * Setting PWM3 to  64 gives 6.25% duty cycle (.0625 * 1024 = 768)
+ *
+ * The total timer period of     1024 cycles is ~980 us  (1/1,045,000 * 1024 * 1000)
+ * The output time high for PWM1, 768 cycles is ~735 us
+ * The output time high for PWM2, 256 cycles is ~245 us
+ * the output time high for PWM3,  64 cycles is  ~61 us
+ *
+ * Frank Milburn 	1 September 2016
+ * Developed on MSP-EXP430F5529 LaunchPad Rev1.5 on CCS V6.1, TIv16.6.0.STS
+ */
+
+#include "driverlib.h"
+
+#define TIMER_PERIOD   1023
+#define PWM1           768
+#define PWM2           256
+#define PWM3           64
+#define PWM_PINS       GPIO_PORT_P1,GPIO_PIN2+GPIO_PIN3+GPIO_PIN4
+
+//--------------------------------  m a i n  -----------------------------------
+void main(void)
+{
+    //Stop WDT
+    WDT_A_hold(WDT_A_BASE);
+
+    //P2.0 and P2.1 output
+    //P2.0 and P2.1 options select
+    GPIO_setAsPeripheralModuleFunctionOutputPin(PWM_PINS);
+
+    //Start timer
+    Timer_A_initUpModeParam initUpParam = {0};
+    	initUpParam.clockSource = TIMER_A_CLOCKSOURCE_SMCLK;
+    	initUpParam.clockSourceDivider = TIMER_A_CLOCKSOURCE_DIVIDER_1;
+    	initUpParam.timerPeriod = TIMER_PERIOD;
+    	initUpParam.timerInterruptEnable_TAIE = TIMER_A_TAIE_INTERRUPT_DISABLE;
+    	initUpParam.captureCompareInterruptEnable_CCR0_CCIE =
+    			TIMER_A_CCIE_CCR0_INTERRUPT_DISABLE;
+    	initUpParam.timerClear = TIMER_A_DO_CLEAR;
+    	initUpParam.startTimer = false;
+
+    Timer_A_initUpMode(TIMER_A0_BASE, &initUpParam);
+
+    Timer_A_startCounter(TIMER_A0_BASE,
+                         TIMER_A_UP_MODE
+                         );
+
+    //Initialize compare mode to generate PWM1
+    Timer_A_initCompareModeParam initComp1Param = {0};
+    	initComp1Param.compareRegister = TIMER_A_CAPTURECOMPARE_REGISTER_1;
+    	initComp1Param.compareInterruptEnable =
+    			TIMER_A_CAPTURECOMPARE_INTERRUPT_DISABLE;
+    	initComp1Param.compareOutputMode = TIMER_A_OUTPUTMODE_RESET_SET;
+    	initComp1Param.compareValue = PWM1;
+    	Timer_A_initCompareMode(TIMER_A0_BASE, &initComp1Param);
+
+    //Initialize compare mode to generate PWM2
+    Timer_A_initCompareModeParam initComp2Param = {0};
+    	initComp2Param.compareRegister = TIMER_A_CAPTURECOMPARE_REGISTER_2;
+    	initComp2Param.compareInterruptEnable =
+    			TIMER_A_CAPTURECOMPARE_INTERRUPT_DISABLE;
+    	initComp2Param.compareOutputMode = TIMER_A_OUTPUTMODE_RESET_SET;
+    	initComp2Param.compareValue = PWM2;
+    	Timer_A_initCompareMode(TIMER_A0_BASE, &initComp2Param);
+
+    //Initialize compare mode to generate PWM3
+    Timer_A_initCompareModeParam initComp3Param = {0};
+    	initComp3Param.compareRegister = TIMER_A_CAPTURECOMPARE_REGISTER_3;
+    	initComp3Param.compareInterruptEnable =
+    			TIMER_A_CAPTURECOMPARE_INTERRUPT_DISABLE;
+    	initComp3Param.compareOutputMode = TIMER_A_OUTPUTMODE_RESET_SET;
+    	initComp3Param.compareValue = PWM3;
+
+    Timer_A_initCompareMode(TIMER_A0_BASE, &initComp3Param);
+
+    //Enter LPM0
+    __bis_SR_register(LPM0_bits);
+
+    //Loop forever
+    for(;;);
+}
+/* This code contains fragments and sections subject to the following
+ * copyright:
+ *
+ * --COPYRIGHT--,BSD
+ * Copyright (c) 2016, Texas Instruments Incorporated
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ * *  Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *
+ * *  Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * *  Neither the name of Texas Instruments Incorporated nor the names of
+ *    its contributors may be used to endorse or promote products derived
+ *    from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+ * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+ * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * --/COPYRIGHT--*/
