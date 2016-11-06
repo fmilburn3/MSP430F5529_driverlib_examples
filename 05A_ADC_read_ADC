@@ -1,0 +1,110 @@
+/*
+ * 05A_ADC_read_ADC: demonstrates use of analog to digital conversion
+ * by reading voltage from a potentiometer and reporting millivolts
+ *
+ * Right click project --> Properties --> MSP430 Linker --> Basic Options
+ * Increase the Heap size to 320 to use printf()
+ *
+ * Connect a potentiometer between GND and 3V3 on the LaunchPad with the
+ * wiper going to P6.0
+ *
+ * Frank Milburn 	22 August 2016
+ * Developed on MSP-EXP430F5529 LaunchPad Rev1.5 on CCS V6.1, TIv16.6.0.STS
+ */
+
+#include "driverlib.h"
+#include <stdio.h>                   // increase heap size to 320 for printf()
+
+void setupADC(void);
+unsigned long readADC(void);
+
+//--------------------------------  m a i n  -----------------------------------
+int main(void) {
+
+    WDT_A_hold(WDT_A_BASE);
+
+    setupADC();
+
+    for (;;){
+		printf("Result = %d mV\n", readADC());
+    }
+}
+//-----------------------------  s e t u p A D C  -------------------------------
+void setupADC(void){
+
+	#define ADCpin  	   GPIO_PORT_P6,GPIO_PIN0
+
+    GPIO_setAsPeripheralModuleFunctionOutputPin(ADCpin);     // set ADCpin to ADC
+
+    ADC12_A_init(ADC12_A_BASE,
+                 ADC12_A_SAMPLEHOLDSOURCE_SC,
+                 ADC12_A_CLOCKSOURCE_ADC12OSC,
+                 ADC12_A_CLOCKDIVIDER_1);
+
+    ADC12_A_enable(ADC12_A_BASE);
+
+    ADC12_A_setupSamplingTimer(ADC12_A_BASE,
+                               ADC12_A_CYCLEHOLD_16_CYCLES,
+                               ADC12_A_CYCLEHOLD_16_CYCLES,
+                               ADC12_A_MULTIPLESAMPLESDISABLE);
+
+    ADC12_A_configureMemoryParam param = {0};
+    param.memoryBufferControlIndex = ADC12_A_MEMORY_0;
+    param.inputSourceSelect = ADC12_A_INPUT_A0;
+    param.positiveRefVoltageSourceSelect = ADC12_A_VREFPOS_AVCC;
+    param.negativeRefVoltageSourceSelect = ADC12_A_VREFNEG_AVSS;
+    param.endOfSequence = ADC12_A_NOTENDOFSEQUENCE;
+
+    ADC12_A_configureMemory(ADC12_A_BASE,&param);
+}
+//-----------------------------  r e a d A D C  --------------------------------
+unsigned long readADC(void){
+
+	ADC12_A_startConversion(ADC12_A_BASE,
+							ADC12_A_MEMORY_0,
+							ADC12_A_SINGLECHANNEL);
+
+	while(ADC12_A_isBusy(ADC12_A_BASE) == ADC12_A_BUSY){
+		// wait for conversion to finish
+	}
+
+	long result = ADC12_A_getResults(ADC12_A_BASE,
+								  ADC12_A_MEMORY_0);
+
+	return (3220 * result) / 4096;                     // 3320 is measured Vss
+
+}
+/* This code contains fragments and sections subject to the following
+ * copyright:
+ *
+ * --COPYRIGHT--,BSD
+ * Copyright (c) 2016, Texas Instruments Incorporated
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ * *  Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *
+ * *  Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * *  Neither the name of Texas Instruments Incorporated nor the names of
+ *    its contributors may be used to endorse or promote products derived
+ *    from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+ * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+ * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * --/COPYRIGHT--*/
