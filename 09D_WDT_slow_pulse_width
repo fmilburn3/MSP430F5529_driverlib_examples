@@ -1,0 +1,192 @@
+/*
+ * 09D_WDT_slow_pulse_width: creates a function to count the length of a positive
+ * pulse using the watchdog timer.  The resolution of the counter is 1
+ * millisecond so this isn't much good for pulses lasting less than 10 ms
+ * or so.  Input is by button 1 as set up and output is to the monitor.
+ *
+ * Right click project --> Properties --> MSP430 Linker --> Basic Options
+ * Increase the Heap size to 320 to use printf()
+ *
+ * MCLK and SMCLK running at approximately 24000/32 * 32768 = 24.576 MHz
+ * ACLK uses REFO (~32,768 Hz)
+ * WDT uses SMCLK as source with clock divider of 8192 (~3000 Hz)
+ *
+ * Frank Milburn 	4 September 2016
+ * Developed on MSP-EXP430F5529 LaunchPad Rev1.5 on CCS V6.1, TIv16.6.0.STS
+ */
+
+#include "driverlib.h"
+#include <stdio.h>
+
+#define MCLK_FREQ_KHZ                       24000
+#define FLLREF_KHZ                          32
+#define UCS_MCLK_FLLREF_RATIO   			MCLK_FREQ_KHZ/FLLREF_KHZ
+#define BUTTON1                             GPIO_PORT_P2,GPIO_PIN1
+#define RED_LED                             GPIO_PORT_P1,GPIO_PIN0
+
+void setupPMM(void);
+void setupGPIO(void);
+void setupUCS(void);
+void setupWDT(void);
+unsigned long milliSecs(void);
+unsigned long pulse(void);
+
+volatile unsigned long oneThirdMillis = 0;   // counter - 1/3 of a millisecond
+volatile unsigned int  pass = 0;
+volatile unsigned long startTime = 0;
+volatile unsigned long pulseWidth = 0;
+
+//--------------------------------  m a i n  -----------------------------------
+void main(void)
+{
+    WDT_A_hold(WDT_A_BASE);
+
+	setupPMM();
+	setupGPIO();
+	setupUCS();
+	setupWDT();
+
+    __bis_SR_register(GIE);
+
+	for(;;){
+		printf("Press button 1 \n");
+		int pulseLength = pulse();
+		printf("You held the button for %d milliseconds \n",(int)pulseLength);
+	}
+
+}
+//----------------------------  s e t u p P M M  -------------------------------
+void setupPMM(void){
+    // set VCore = 0 for 8 MHz and below
+    //           = 1 for 12 MHz
+    //           = 2 for 20 MHz
+    //           = 3 for 25 MHz
+    PMM_setVCore(PMM_CORE_LEVEL_3);
+}
+//---------------------------  s e t u p G P I O  ------------------------------
+void setupGPIO(void){
+    GPIO_setAsOutputPin(RED_LED);
+    GPIO_setOutputLowOnPin(RED_LED);
+}
+//----------------------------  s e t u p U C S  -------------------------------
+void setupUCS(void){
+    UCS_initClockSignal(                     // use REFO for ACLK (32768 Hz)
+        UCS_ACLK,
+        UCS_REFOCLK_SELECT,
+        UCS_CLOCK_DIVIDER_1);
+
+    UCS_initClockSignal(                     // set DCO FLL ref to DFOCLK
+        UCS_FLLREF,
+        UCS_DCOCLK_SELECT,
+        UCS_CLOCK_DIVIDER_1);
+
+    UCS_initClockSignal(                     // use DFOCLK for SMCLK
+        UCS_SMCLK,
+        UCS_DCOCLK_SELECT,
+        UCS_CLOCK_DIVIDER_1);
+
+    UCS_initFLLSettle(                       // set MCLK frequency and ratio
+    	MCLK_FREQ_KHZ,
+        UCS_MCLK_FLLREF_RATIO);
+}
+//----------------------------  s e t u p W D T  -------------------------------
+void setupWDT(void){
+    WDT_A_initIntervalTimer(WDT_A_BASE,
+                            WDT_A_CLOCKSOURCE_SMCLK,
+                            WDT_A_CLOCKDIVIDER_8192);
+
+    WDT_A_start(WDT_A_BASE);
+
+    //Place WDT in timer interrupt mode
+    SFR_clearInterrupt(SFR_WATCHDOG_INTERVAL_TIMER_INTERRUPT);
+    SFR_enableInterrupt(SFR_WATCHDOG_INTERVAL_TIMER_INTERRUPT);
+}
+//-------------------------------  p u l s e  -----------------------------------
+unsigned long pulse(void){
+    GPIO_setAsInputPinWithPullUpResistor(BUTTON1);
+    GPIO_selectInterruptEdge(BUTTON1, GPIO_HIGH_TO_LOW_TRANSITION);
+	GPIO_clearInterrupt(BUTTON1);
+	GPIO_enableInterrupt(BUTTON1);
+	pass = 0;
+	pulseWidth = 0;
+	while(pulseWidth == 0){
+		// wait for pulseWidth to be calculated
+	}
+	GPIO_disableInterrupt(BUTTON1);
+	return pulseWidth;
+}
+//----------------------------  m i l l i S e c s  ------------------------------
+unsigned long milliSecs(){
+	return oneThirdMillis / 3;               // return millis
+}
+//---------------------------  P o r t  2   I S R  ------------------------------
+#if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
+#pragma vector=PORT2_VECTOR
+__interrupt void Port_2(void)
+#elif defined(__GNUC__)
+void __attribute__ ((interrupt(PORT2_VECTOR))) Port_2 (void)
+#else
+#error Compiler not supported!
+#endif
+{
+	if (pass == 0){
+		// first pass through, start counting
+		startTime = milliSecs();
+	    GPIO_selectInterruptEdge(BUTTON1, GPIO_LOW_TO_HIGH_TRANSITION);
+	}
+	else {
+		// second pass, calculate the pulse width
+		pulseWidth = milliSecs() - startTime;
+	}
+	pass++;
+	GPIO_clearInterrupt(BUTTON1);
+	GPIO_toggleOutputOnPin(RED_LED);
+}
+
+//---------------------------  W D T _ A _ I S R  ----------------------------
+#if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
+#pragma vector=WDT_VECTOR
+__interrupt
+#elif defined(__GNUC__)
+__attribute__((interrupt(WDT_VECTOR)))
+#else
+#error Compiler not supported!
+#endif
+void WDT_A_ISR(void)
+{
+    oneThirdMillis++;                        // count thirds of a millisecond
+}
+/* This code contains fragments and sections subject to the following
+ * copyright:
+ *
+ * --COPYRIGHT--,BSD
+ * Copyright (c) 2016, Texas Instruments Incorporated
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ * *  Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *
+ * *  Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * *  Neither the name of Texas Instruments Incorporated nor the names of
+ *    its contributors may be used to endorse or promote products derived
+ *    from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+ * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+ * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * --/COPYRIGHT--*/
