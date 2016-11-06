@@ -1,0 +1,93 @@
+/*
+ * 06B_UCS_external_clock: demonstrates how to select the low frequency
+ * (32768 Hz) external clock on the LaunchPad as a source for ACLK
+ *
+ * Note: ACLK can be measured by oscilloscope on P1.0
+ *
+ * Frank Milburn 	24 August 2016
+ * Developed on MSP-EXP430F5529 LaunchPad Rev1.5 on CCS V6.1, TIv16.6.0.STS
+ */
+#include "driverlib.h"
+
+volatile unsigned int status;
+
+//--------------------------------  m a i n  -----------------------------------
+void main(void)
+{
+    WDT_A_hold(WDT_A_BASE);
+
+    GPIO_setAsPeripheralModuleFunctionOutputPin(  //P1.0 to output ACLK
+        GPIO_PORT_P1,
+        GPIO_PIN0);
+
+    GPIO_setAsPeripheralModuleFunctionInputPin(   //Port select XT1
+        GPIO_PORT_P5,
+        GPIO_PIN4 + GPIO_PIN5);                   // XT1 out on P5.5, XT1 in on P5.4
+
+    UCS_initClockSignal(                          // use XT1CLK for ACLK (32768 Hz)
+        UCS_ACLK,
+        UCS_XT1CLK_SELECT,
+        UCS_CLOCK_DIVIDER_1);
+
+    UCS_turnOnLFXT1(
+        UCS_XT1_DRIVE_0,                          // maximum drive strength (3) needed for 25 MHz
+        UCS_XCAP_3);
+
+    // enable global oscillator fault flag
+    SFR_clearInterrupt(SFR_OSCILLATOR_FAULT_INTERRUPT);
+    SFR_enableInterrupt(SFR_OSCILLATOR_FAULT_INTERRUPT);
+
+    __bis_SR_register(GIE);                       // enable global interrupt
+
+   for(;;);
+}
+//-----------------------------  N M I _ I S R  --------------------------------
+#if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
+#pragma vector=UNMI_VECTOR
+__interrupt
+#elif defined(__GNUC__)
+__attribute__((interrupt(UNMI_VECTOR)))
+#endif
+void NMI_ISR(void)
+{
+    do
+    {
+        // trap and wait here until oscillator fault flags are cleared
+        status = UCS_clearAllOscFlagsWithTimeout(1000);
+    }
+    while(status != 0);
+}
+/* This code contains fragments and sections subject to the following
+ * copyright:
+ *
+ * --COPYRIGHT--,BSD
+ * Copyright (c) 2016, Texas Instruments Incorporated
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ * *  Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *
+ * *  Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * *  Neither the name of Texas Instruments Incorporated nor the names of
+ *    its contributors may be used to endorse or promote products derived
+ *    from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+ * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+ * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * --/COPYRIGHT--*/
