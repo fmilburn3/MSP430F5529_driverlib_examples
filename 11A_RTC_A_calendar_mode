@@ -1,0 +1,171 @@
+/*
+ * 11A_RTC_A_calendar_mode:
+ *  - toggles the red LED once a second
+ *  - toggles the green LED once a minute
+ *  - sets pin 6.5 to output alarm
+ *  - sends initial date and time info to serial monitor
+ *
+ * Right click project --> Properties --> MSP430 Linker --> Basic Options
+ * Increase the Heap size to 320 to use printf()
+ *
+ * MCLK and SMCLK running at approximately 24000/32 * 32768 = 24.576 MHz
+ * ACLK uses REFO (~32,768 Hz)
+ *
+ * Prescalers divide ACLK down by factors of 8 and then 16 = 32,768 / 8 / 16
+ * or 256 Hz.  An 8 bit counter is used so the interrupt occurs every 256
+ * counts, or once a second.
+ *
+ * Frank Milburn 	25 Feb 2017
+ * Developed on MSP-EXP430F5529 LaunchPad Rev1.5 with CCS V7.0, TIv16.12.0.STS
+ */
+
+#include "driverlib.h"
+#include <stdio.h>
+
+volatile Calendar newTime;
+
+void main(void)
+{
+    Calendar currentTime;
+
+    WDT_A_hold(WDT_A_BASE);
+
+    //Set P1.0 to output direction and low (seconds)
+    GPIO_setAsOutputPin( GPIO_PORT_P1, GPIO_PIN0 );
+    GPIO_setOutputLowOnPin ( GPIO_PORT_P1, GPIO_PIN0 );
+
+    //Set P4.7 to output direction and low (minutes)
+    GPIO_setAsOutputPin( GPIO_PORT_P4, GPIO_PIN7 );
+    GPIO_setOutputLowOnPin ( GPIO_PORT_P4, GPIO_PIN7 );
+
+    //Set P6.5 to output direction and low (alarm)
+    GPIO_setAsOutputPin( GPIO_PORT_P6, GPIO_PIN5 );
+    GPIO_setOutputLowOnPin ( GPIO_PORT_P6, GPIO_PIN5 );
+
+    // Select XT1
+    GPIO_setAsPeripheralModuleFunctionInputPin(
+    GPIO_PORT_P5, GPIO_PIN4 + GPIO_PIN5 );
+
+    //Initialize LFXT1
+    UCS_turnOnLFXT1(UCS_XT1_DRIVE_3, UCS_XCAP_3 );
+
+    //Setup Current Time for Calendar
+    currentTime.Seconds = 		0;
+    currentTime.Minutes = 		19;
+    currentTime.Hours = 		13;
+    currentTime.DayOfWeek = 	6;
+    currentTime.DayOfMonth = 	25;
+    currentTime.Month = 		2;
+    currentTime.Year = 			2017;
+
+    //Initialize Calendar Mode of RTC
+    /*
+     * Base Address of the RTC_A_A
+     * Pass in current time, intialized above
+     * Use BCD as Calendar Register Format
+     */
+    RTC_A_initCalendar(RTC_A_BASE, &currentTime, RTC_A_FORMAT_BCD);
+
+    //Setup Calendar Alarm
+    //Note: Does not specify day of the month - choose either month or week
+    RTC_A_configureCalendarAlarmParam param = {0};
+    param.minutesAlarm = 		20;
+    param.hoursAlarm =			13;
+    param.dayOfWeekAlarm = 		6;
+    param.dayOfMonthAlarm = 	RTC_A_ALARMCONDITION_OFF;
+    RTC_A_configureCalendarAlarm(RTC_A_BASE, &param);
+
+    //Specify an interrupt to assert every minute
+    RTC_A_setCalendarEvent(RTC_A_BASE,
+                           RTC_A_CALENDAREVENT_MINUTECHANGE);
+
+    //Enable interrupt for RTC Ready Status, which asserts when the RTC
+    //Calendar registers are ready to read.
+    //Also, enable interrupts for the Calendar alarm and Calendar event.
+    RTC_A_clearInterrupt(RTC_A_BASE, RTCRDYIFG + RTCTEVIFG + RTCAIFG);
+    RTC_A_enableInterrupt(RTC_A_BASE, RTCRDYIE + RTCTEVIE + RTCAIE);
+
+    //Start RTC Clock
+    RTC_A_startClock(RTC_A_BASE);
+
+    // Read out the time and print
+    newTime = RTC_A_getCalendarTime(RTC_A_BASE);
+    printf("Current Time...\n");
+    printf("Year         = %d\n", newTime.Year);
+    printf("Month        = %d\n", newTime.Month);
+    printf("Day of Month = %d\n", newTime.DayOfMonth);
+    printf("Day of Week  = %d\n", newTime.DayOfWeek);
+    printf("Hour         = %d\n", newTime.Hours);
+    printf("Minutes =      %d\n", newTime.Minutes);
+    printf("Second       = %d\n", newTime.Seconds);
+
+    //Enter LPM3 mode with interrupts enabled
+    __bis_SR_register(LPM3_bits + GIE);
+    __no_operation();
+}
+
+#if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
+#pragma vector=RTC_VECTOR
+__interrupt
+#elif defined(__GNUC__)
+__attribute__((interrupt(RTC_VECTOR)))
+#endif
+void RTC_A_ISR(void)
+{
+    switch(__even_in_range(RTCIV,16))
+    {
+    case 0: break;      //No interrupts
+    case 2:             //RTCRDYIFG
+        // Toggle P1.0 every second
+        GPIO_toggleOutputOnPin( GPIO_PORT_P1, GPIO_PIN0 );
+        break;
+    case 4:             //RTCEVIFG
+        // Toggle P4.7 every minute
+    	GPIO_toggleOutputOnPin( GPIO_PORT_P4, GPIO_PIN7 );
+        break;
+    case 6:             //RTCAIFG
+        // Alarm interrupt
+        GPIO_setOutputHighOnPin ( GPIO_PORT_P6, GPIO_PIN5 );
+        break;
+    case 8: break;      //RT0PSIFG
+    case 10: break;     //RT1PSIFG
+    case 12: break;     //Reserved
+    case 14: break;     //Reserved
+    case 16: break;     //Reserved
+    default: break;
+    }
+}
+/* This code contains fragments and sections subject to the following
+ * copyright:
+ *
+ * --COPYRIGHT--,BSD
+ * Copyright (c) 2016, Texas Instruments Incorporated
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ * *  Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *
+ * *  Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * *  Neither the name of Texas Instruments Incorporated nor the names of
+ *    its contributors may be used to endorse or promote products derived
+ *    from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+ * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+ * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * --/COPYRIGHT--*/
